@@ -1,28 +1,62 @@
-const mongoose = require('mongoose')
+const mongoose = require("mongoose");
 
-const ticketSchema = new mongoose.Schema({
-    id:{
-        type:String
+const ticketSchema = new mongoose.Schema(
+    {
+        incident: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Incident",
+            required: true,
+        },
+
+        machine: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Machine",
+            required: true,
+        },
+
+        title: {
+            type: String,
+            required: true,
+        },
+
+        description: {
+            type: String,
+            required: true,
+        },
+
+        priority: {
+            type: String,
+            enum: ["Low", "Medium", "High", "Critical"],
+            required: true,
+        },
+
+        assignedTo: {
+            type: String,
+            default: "Maintenance Team",
+        },
+
+        status: {
+            type: String,
+            enum: ["Open", "In Progress", "Resolved"],
+            default: "Open",
+        },
+
+        estimatedDowntime: {
+            type: String,
+        },
+
+        createdBy: {
+            type: String,
+            default: "AI",
+        },
+
+        dueDate: {
+            type: Date,
+        },
     },
-    incidentId:{
-        type:String
-    },
-    assignedTo:{
-        type:String
-    },
-    status:{
-        type:String,
-        enum: ['open', 'in_progress', 'resolved'],
-    },
-    estimatedDownTime:{
-        type:String
-    },
-    createdAt:{
-        type:String
-    },
-    completedAt:{
-        type:String
+    {
+        timestamps: true,
     }
-})
+);
 
-module.exports = mongoose.model('Ticket', ticketSchema)
+module.exports = mongoose.model("Ticket", ticketSchema);

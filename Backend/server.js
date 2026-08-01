@@ -4,6 +4,7 @@ dotenv.config();
 const connectDB = require("./src/config/db"); // Import the connectDB function
 const machineRoutes = require("./src/routes/machineRoute");
 const incidentRoutes = require("./src/routes/incidentRoute");
+const ticketRoutes = require("./src/routes/ticketRoute");
 const cors = require("cors");
 
 const app = express();
@@ -15,6 +16,7 @@ app.use(express.json());
 connectDB();
 app.use("/api/machines", machineRoutes);
 app.use("/api/incidents", incidentRoutes);
+app.use('/api/tickets', ticketRoutes);
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
