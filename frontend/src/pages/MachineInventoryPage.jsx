@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { inventoryApi } from '../api/endpoints';
 import { mockInventoryMachines } from '../data/mockInventoryData';
+import { mockMachineDetailsMap } from '../data/mockMachineDetails';
 import { InventoryToolbar } from '../components/inventory/InventoryToolbar';
 import { MachineCard } from '../components/inventory/MachineCard';
 import { MachineTable } from '../components/inventory/MachineTable';
@@ -18,7 +19,7 @@ import { InventoryPagination } from '../components/inventory/InventoryPagination
 import { MachineDetailModal } from '../components/inventory/MachineDetailModal';
 
 export const MachineInventoryPage = () => {
-  const [machinesList, setMachinesList] = useState(mockInventoryMachines);
+  const [machinesList, setMachinesList] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -44,15 +45,88 @@ export const MachineInventoryPage = () => {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
+  const formatDate = (value) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toISOString().slice(0, 10);
+  };
+
+  const getDaysSince = (value) => {
+    if (!value) return 'Recently';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+
+    const diffMs = Date.now() - date.getTime();
+    const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+    return diffDays === 0 ? 'Today' : `${diffDays} days ago`;
+  };
+
+  const mapStatus = (status) => {
+    if (status === 'active') return 'optimal';
+    if (status === 'inactive') return 'offline';
+    if (status === 'maintenance') return 'maintenance';
+    return status || 'offline';
+  };
+
+  const buildUiMachine = (machine) => {
+    const machineId = machine.machineId || machine.id || machine._id;
+    const mockMachine = mockInventoryMachines.find((item) => item.id === machineId) || mockMachineDetailsMap[machineId] || {};
+    const status = mapStatus(machine.status || mockMachine.status);
+    const hasMockDetail = Boolean(mockMachineDetailsMap[machineId]);
+    const fallbackHealthScore = status === 'optimal' ? 90 : status === 'maintenance' ? 48 : status === 'warning' ? 68 : 25;
+
+    return {
+      ...mockMachine,
+      mongoId: machine._id || machine.mongoId || null,
+      id: machineId,
+      name: machine.name || mockMachine.name || machineId,
+      type: mockMachine.type || machine.department || 'General Equipment',
+      zone: mockMachine.zone || machine.location || machine.department || 'Unassigned',
+      status,
+      healthScore: mockMachine.healthScore ?? fallbackHealthScore,
+      temperature: mockMachine.temperature ?? (status === 'optimal' ? 68 : status === 'maintenance' ? 92 : 104),
+      temperatureBaseline: mockMachine.temperatureBaseline ?? 70,
+      pressure: mockMachine.pressure ?? (status === 'optimal' ? 10 : 12.5),
+      pressureBaseline: mockMachine.pressureBaseline ?? 10,
+      riskLevel: mockMachine.riskLevel ?? (status === 'optimal' ? 'Nominal P4' : status === 'maintenance' ? 'Warning P2' : 'Critical P1'),
+      lastMaintenance: formatDate(machine.lastMaintained || mockMachine.lastMaintenance),
+      lastMaintenanceDays: getDaysSince(machine.lastMaintained || mockMachine.lastMaintenance),
+      nextMaintenance: mockMachine.nextMaintenance || '',
+      operatingHours: mockMachine.operatingHours ?? 0,
+      manufacturer: machine.manufacturer || mockMachine.manufacturer || 'Unknown',
+      model: mockMachine.model || machine.department || 'Unknown',
+      serialNumber: mockMachine.serialNumber || machine.machineId || machine._id || 'N/A',
+      criticalComponent: mockMachine.criticalComponent || 'General inspection pending',
+      vibration: mockMachine.vibration || 'N/A',
+      installationDate: mockMachine.installationDate || formatDate(machine.createdAt || machine.lastMaintained) || '',
+      image: hasMockDetail ? mockMachine.image : mockMachine.image || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&auto=format&fit=crop&q=80',
+      rulPercentage: mockMachine.rulPercentage ?? fallbackHealthScore,
+      humidity: mockMachine.humidity ?? 45,
+      humidityBaseline: mockMachine.humidityBaseline ?? 45,
+      powerConsumption: mockMachine.powerConsumption ?? 'N/A',
+      powerValue: mockMachine.powerValue ?? 0,
+      maintenanceHistory: mockMachine.maintenanceHistory || [],
+      previousIncidents: mockMachine.previousIncidents || [],
+      timeline: mockMachine.timeline || [],
+    };
+  };
+
   const fetchMachines = async () => {
     setIsLoading(true);
     setError(null);
     try {
       const res = await inventoryApi.getMachines();
-      setMachinesList(res.data || mockInventoryMachines);
+      const rawMachines = Array.isArray(res.data?.data)
+        ? res.data.data
+        : Array.isArray(res.data)
+          ? res.data
+          : [];
+
+      setMachinesList(rawMachines.map(buildUiMachine));
     } catch (err) {
       console.warn('Inventory Axios call fallback:', err);
-      setMachinesList(mockInventoryMachines);
+      setMachinesList(mockInventoryMachines.map(buildUiMachine));
     } finally {
       setIsLoading(false);
     }
@@ -134,6 +208,88 @@ export const MachineInventoryPage = () => {
     showToast(`Work Order dispatched for ${machine.name} (${machine.id}) to Zone Team`);
   };
 
+  const promptMachinePayload = (machine = null) => {
+    const machineId = window.prompt('Machine ID', machine?.id || '')?.trim();
+    if (!machineId) return null;
+
+    const name = window.prompt('Machine Name', machine?.name || '')?.trim();
+    if (!name) return null;
+
+    const location = window.prompt('Location / Zone', machine?.zone || '')?.trim();
+    if (!location) return null;
+
+    const department = window.prompt('Department / Type', machine?.type || '')?.trim();
+    if (!department) return null;
+
+    const manufacturer = window.prompt('Manufacturer', machine?.manufacturer || '')?.trim() || '';
+    const statusInput = window.prompt('Status (active, inactive, maintenance)', machine?.status === 'optimal' ? 'active' : machine?.status || 'inactive')?.trim() || 'inactive';
+    const lastMaintained = window.prompt('Last Maintained (YYYY-MM-DD)', machine?.lastMaintenance || formatDate(new Date()))?.trim() || formatDate(new Date());
+
+    return {
+      machineId,
+      name,
+      location,
+      department,
+      manufacturer,
+      status: statusInput,
+      lastMaintained,
+    };
+  };
+
+  const handleCreateMachine = async () => {
+    const payload = promptMachinePayload();
+    if (!payload) return;
+
+    try {
+      await inventoryApi.createMachine(payload);
+      showToast(`Machine ${payload.machineId} created successfully`);
+      await fetchMachines();
+    } catch (err) {
+      console.error('Create machine failed:', err);
+      showToast('Failed to create machine');
+    }
+  };
+
+  const handleEditMachine = async (machine) => {
+    const payload = promptMachinePayload(machine);
+    if (!payload) return;
+
+    if (!machine.mongoId) {
+      showToast('Missing backend machine id for update');
+      return;
+    }
+
+    try {
+      await inventoryApi.updateMachineById(machine.mongoId, payload);
+      showToast(`Machine ${payload.machineId} updated successfully`);
+      await fetchMachines();
+      setInspectingMachine(null);
+    } catch (err) {
+      console.error('Update machine failed:', err);
+      showToast('Failed to update machine');
+    }
+  };
+
+  const handleDeleteMachine = async (machine) => {
+    if (!machine.mongoId) {
+      showToast('Missing backend machine id for delete');
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete machine ${machine.name} (${machine.id})?`);
+    if (!confirmed) return;
+
+    try {
+      await inventoryApi.deleteMachineById(machine.mongoId);
+      showToast(`Machine ${machine.id} deleted successfully`);
+      setInspectingMachine(null);
+      await fetchMachines();
+    } catch (err) {
+      console.error('Delete machine failed:', err);
+      showToast('Failed to delete machine');
+    }
+  };
+
   return (
     <div className="space-y-6 pb-12">
       {/* Toast Notification */}
@@ -181,7 +337,7 @@ export const MachineInventoryPage = () => {
             <span>Export Inventory</span>
           </button>
           <button
-            onClick={() => showToast('Asset Registration Wizard initialized')}
+            onClick={handleCreateMachine}
             className="px-3.5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold flex items-center gap-2 shadow-lg shadow-cyan-500/20 transition"
           >
             <Plus className="w-4 h-4" />
@@ -280,6 +436,8 @@ export const MachineInventoryPage = () => {
         machine={inspectingMachine}
         onClose={() => setInspectingMachine(null)}
         onDispatch={handleDispatch}
+        onEdit={handleEditMachine}
+        onDelete={handleDeleteMachine}
       />
     </div>
   );

@@ -19,10 +19,14 @@ import { AuthTransitionScreen } from '../../components/auth/AuthTransitionScreen
 
 export const Login = () => {
   const navigate = useNavigate();
-  const { login, selectDemoAccount } = useAuth();
+  const { login, register, demoAccounts } = useAuth();
 
-  const [email, setEmail] = useState('manager@forgemind.ai');
-  const [password, setPassword] = useState('password123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [department, setDepartment] = useState('');
+  const [role, setRole] = useState('worker');
+  const [isRegister, setIsRegister] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
@@ -50,20 +54,62 @@ export const Login = () => {
     setEmail(acc.email);
     setPassword(acc.password);
     setCopiedRole(acc.role);
-    showToast(`Loaded ${acc.role} credentials (${acc.email})`);
+    showToast(`Filled ${acc.role} credentials (${acc.email})`);
     setTimeout(() => setCopiedRole(null), 2000);
   };
 
-  const handleQuickLogin = (acc) => {
-    selectDemoAccount(acc);
-    setTransitionUser(acc);
-    setIsTransitioning(true);
+  const handleQuickFill = (acc) => {
+    // Fill the form with demo credentials but do not auto-login
+    setEmail(acc.email);
+    setPassword(acc.password);
+    setToastMessage(`Filled ${acc.role} credentials`);
+    setTimeout(() => setToastMessage(null), 2000);
+  };
+
+  const mapDemoRoleToBackend = (roleStr) => {
+    const r = (roleStr || '').toLowerCase();
+    if (r.includes('manager')) return 'manager';
+    if (r.includes('admin')) return 'admin';
+    // default safety officer and others to worker
+    return 'worker';
+  };
+
+  const handleQuickLogin = async (acc) => {
+    setIsLoading(true);
+    try {
+      // Try to login first
+      const logged = await login(acc.email, acc.password);
+      setTransitionUser(logged);
+      setIsTransitioning(true);
+      showToast(`Signed in as ${acc.role}`);
+    } catch (err) {
+      // If login fails, attempt to register then login
+      try {
+        const payload = {
+          name: acc.name || acc.role,
+          email: acc.email,
+          password: acc.password,
+          department: acc.zone || acc.badgeId || 'Demo',
+          role: mapDemoRoleToBackend(acc.role),
+        };
+        await register(payload);
+        const logged = await login(acc.email, acc.password);
+        setTransitionUser(logged);
+        setIsTransitioning(true);
+        showToast(`Registered and signed in as ${acc.role}`);
+      } catch (err2) {
+        showToast(err2?.response?.data?.message || 'Quick login failed');
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleTransitionComplete = () => {
     const targetUser = transitionUser || DEMO_ACCOUNTS[2];
-    if (targetUser.role === 'Worker') navigate('/worker');
-    else if (targetUser.role === 'Safety Officer') navigate('/safety');
+    const r = (targetUser.role || '').toLowerCase();
+    if (r.includes('worker')) navigate('/worker');
+    else if (r.includes('safety') || r.includes('safety officer')) navigate('/safety');
     else navigate('/dashboard');
   };
 
@@ -73,11 +119,17 @@ export const Login = () => {
 
     setIsLoading(true);
     try {
-      const loggedUser = await login(email, password);
+      let loggedUser;
+      if (isRegister) {
+        const payload = { name, email, password, department, role };
+        loggedUser = await register(payload);
+      } else {
+        loggedUser = await login(email, password);
+      }
       setTransitionUser(loggedUser);
       setIsTransitioning(true);
     } catch (err) {
-      showToast('Authentication failed. Using default session.');
+      showToast(err?.response?.data?.message || 'Authentication failed');
     } finally {
       setIsLoading(false);
     }
@@ -106,7 +158,7 @@ export const Login = () => {
         
         {/* Brand Header */}
         <div className="text-center space-y-3">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20 border border-cyan-400/30">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-linear-to-br from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/20 border border-cyan-400/30">
             <Shield className="w-6 h-6" />
           </div>
 
@@ -133,6 +185,45 @@ export const Login = () => {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Register-only fields */}
+            {isRegister && (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-300 block">Full name</label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Jane Doe"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 transition"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-300 block">Department</label>
+                  <input
+                    type="text"
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    placeholder="Manufacturing"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 transition"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-slate-300 block">Role</label>
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/30 transition"
+                  >
+                    <option value="worker">Worker</option>
+                    <option value="manager">Manager</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+              </>
+            )}
             {/* Email Input */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-slate-300 block">
@@ -208,21 +299,32 @@ export const Login = () => {
             </div>
 
             {/* Sign In Button */}
-            <button
-              type="submit"
-              disabled={isLoading}
+              <button
+                type="submit"
+                disabled={isLoading}
               className="w-full py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs shadow-md shadow-cyan-500/10 transition flex items-center justify-center gap-2 active:scale-[0.99]"
             >
               {isLoading ? (
                 <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>Sign In</span>
+                  <span>{isRegister ? 'Create account' : 'Sign In'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
             </button>
           </form>
+
+          {/* Toggle Register */}
+          <div className="pt-3">
+            <button
+              type="button"
+              onClick={() => setIsRegister(!isRegister)}
+              className="text-xs text-cyan-300 hover:underline"
+            >
+              {isRegister ? 'Switch to Sign In' : 'Create an account'}
+            </button>
+          </div>
 
           {/* Quick Demo Accounts */}
           <div className="space-y-3 pt-2 border-t border-slate-800/80">

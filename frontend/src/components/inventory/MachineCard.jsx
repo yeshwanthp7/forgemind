@@ -17,6 +17,15 @@ import {
 } from 'lucide-react';
 
 export const MachineCard = ({ machine, onInspect }) => {
+  const handleInspect = () => {
+    if (onInspect) {
+      onInspect(machine);
+      return;
+    }
+
+    navigate(`/inventory/${machine.id}`);
+  };
+
   const getStatusBadge = (status) => {
     switch (status) {
       case 'critical':
@@ -159,7 +168,7 @@ export const MachineCard = ({ machine, onInspect }) => {
         </div>
 
         <button
-          onClick={() => navigate(`/inventory/${machine.id}`)}
+          onClick={handleInspect}
           className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-cyan-500 hover:text-slate-950 text-slate-200 text-xs font-bold border border-slate-700 transition flex items-center gap-1.5 shadow-md"
         >
           <Eye className="w-3.5 h-3.5" />

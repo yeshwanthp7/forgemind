@@ -11,9 +11,9 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
-  timeout: 10000,
+  timeout: 30000, // Increased timeout to 30 seconds
   headers: {
-    'Content-Type': 'application/json',
+    // 'Content-Type': 'application/json', // Axios will automatically set this for JSON payloads, and multipart/form-data for FormData
     Accept: 'application/json',
   },
 });

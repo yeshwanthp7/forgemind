@@ -1,22 +1,96 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { mockTickets } from '../data/mockTickets';
 import { TicketKanbanBoard } from '../components/tickets/TicketKanbanBoard';
 import { CreateTicketModal } from '../components/tickets/CreateTicketModal';
 import { Button } from '../components/ui/Button';
-import { Wrench, Plus, Kanban, Table, Filter } from 'lucide-react';
-import { TicketPriorityBadge } from '../components/tickets/TicketPriorityBadge';
+import { Wrench, Plus, Kanban, Table, Filter, AlertTriangle, Loader2 } from 'lucide-react';
+import { ticketApi } from '../api/endpoints';
+
+const toDateLabel = (value) => {
+  if (!value) return '—';
+  return new Date(value).toLocaleDateString();
+};
+
+const normalizeTicket = (ticket) => {
+  const ai = ticket?.aiAnalysis || ticket?.incident?.aiAnalysis || {};
+  const priority = ticket?.priority || ai?.severity || 'P4 Low';
+  const machineName = typeof ticket?.machine === 'object' ? ticket.machine?.name : (ticket?.machine || 'General Equipment');
+  const createdAt = ticket?.createdAt || ticket?.created_at;
+
+  return {
+    ...ticket,
+    id: ticket?._id || ticket?.id || ticket?.ticketId,
+    ticketId: ticket?.ticketId || ticket?._id || ticket?.id,
+    machineName: machineName || '—',
+    incidentDescription: ticket?.description || ai?.recommendation || '—',
+    title: ticket?.title || ticket?.description || 'Maintenance Work Order',
+    priority,
+    status: ticket?.status || 'Open',
+    assignedTechnician: ticket?.assignedTo || 'Maintenance Team',
+    estimatedTime: ticket?.estimatedDowntime || (ai?.riskScore >= 80 ? '4.5 Hours' : '1.5 Hours'),
+    createdAt,
+    createdAtLabel: toDateLabel(createdAt),
+    aiGeneratedNotes: ai?.recommendation || ticket?.description || 'Automated predictive maintenance ticket',
+    technicianAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    requiredParts: ticket?.requiredParts || ["SKF-6210 Bearing", "Mobil SHC Lubricant"],
+  };
+};
 
 export const TicketsPage = () => {
   const navigate = useNavigate();
-  const [tickets, setTickets] = useState(mockTickets);
+  const [tickets, setTickets] = useState([]);
   const [viewMode, setViewMode] = useState('kanban'); // 'kanban' | 'table'
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState('all');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const handleCreateTicket = (newTicket) => {
-    setTickets(prev => [newTicket, ...prev]);
+  const fetchTickets = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await ticketApi.getTickets();
+      const fetchedTickets = Array.isArray(res?.data?.data)
+        ? res.data.data
+        : Array.isArray(res?.data)
+          ? res.data
+          : [];
+      setTickets(fetchedTickets.map(normalizeTicket));
+    } catch (err) {
+      console.error('Failed to fetch tickets:', err);
+      setError('Failed to load tickets. Please try again later.');
+    } finally {
+      setIsLoading(false);
+    }
   };
+
+  const handleCreateTicket = async (newTicketData) => {
+    try {
+      const payload = {
+        title: newTicketData.title,
+        description: newTicketData.notes || newTicketData.title,
+        priority: newTicketData.priority,
+        assignedTo: newTicketData.assignedTechnician,
+        estimatedDowntime: newTicketData.estimatedTime,
+        status: 'Open',
+      };
+      const res = await ticketApi.createTicket(payload);
+      const created = res?.data?.data || res?.data;
+      if (created) {
+        setTickets(prev => [normalizeTicket(created), ...prev]);
+      } else {
+        fetchTickets();
+      }
+    } catch (err) {
+      console.error('Error creating ticket:', err);
+      setTickets(prev => [normalizeTicket(newTicketData), ...prev]);
+    }
+  };
+
+  useEffect(() => {
+    fetchTickets();
+  }, []);
+
 
   const filteredTickets = tickets.filter(t => priorityFilter === 'all' || t.priority === priorityFilter);
 
@@ -88,24 +162,42 @@ export const TicketsPage = () => {
         </span>
       </div>
 
+      {isLoading && (
+        <div className="flex items-center justify-center p-8 text-slate-400">
+          <Loader2 className="w-6 h-6 animate-spin mr-2" />
+          <span>Loading tickets...</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-center justify-between gap-4 p-4 text-xs border rounded-2xl bg-rose-950/60 border-rose-500/40 text-rose-200">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{error}</span>
+          </div>
+          {/* Optionally add a retry button */}
+          <button onClick={() => window.location.reload()} className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-100 font-bold flex items-center gap-1.5">Retry</button>
+        </div>
+      )}
+
       {/* Main View */}
       {viewMode === 'kanban' ? (
         <TicketKanbanBoard
           tickets={filteredTickets}
-          onTicketClick={(ticket) => navigate(`/tickets/${ticket.id}`)}
+          onTicketClick={(ticket) => navigate(`/tickets/${ticket.id || ticket.ticketId}`)}
         />
       ) : (
         <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 backdrop-blur-md overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-950 text-slate-400 font-mono text-[10px] uppercase tracking-wider border-b border-slate-800">
               <tr>
-                <th className="p-3">Work Order ID</th>
-                <th className="p-3">Title</th>
-                <th className="p-3">Priority</th>
+                <th className="p-3">Ticket ID</th>
+                <th className="p-3">Machine Name</th>
+                <th className="p-3">Incident Description</th>
                 <th className="p-3">Status</th>
-                <th className="p-3">Assigned Tech</th>
-                <th className="p-3">Est. Time</th>
-                <th className="p-3">Created At</th>
+                <th className="p-3">Assigned To</th>
+                <th className="p-3">Estimated Downtime</th>
+                <th className="p-3">Created Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 font-medium">
@@ -115,18 +207,17 @@ export const TicketsPage = () => {
                   onClick={() => navigate(`/tickets/${t.id}`)}
                   className="hover:bg-slate-800/60 cursor-pointer transition"
                 >
-                  <td className="p-3 font-mono font-bold text-cyan-400">{t.id}</td>
+                  <td className="p-3 font-mono font-bold text-cyan-400">{t.ticketId}</td>
                   <td className="p-3">
-                    <div className="font-bold text-slate-100">{t.title}</div>
-                    <div className="text-[10px] text-slate-400 font-mono">{t.assetName} ({t.zone})</div>
+                    <div className="font-bold text-slate-100">{t.machineName}</div>
                   </td>
                   <td className="p-3">
-                    <TicketPriorityBadge priority={t.priority} />
+                    <div className="text-slate-300 line-clamp-2">{t.incidentDescription}</div>
                   </td>
                   <td className="p-3 text-slate-300">{t.status}</td>
                   <td className="p-3 text-slate-300">{t.assignedTechnician}</td>
                   <td className="p-3 font-mono text-slate-400">{t.estimatedTime}</td>
-                  <td className="p-3 font-mono text-slate-500">{t.createdAt}</td>
+                  <td className="p-3 font-mono text-slate-500">{t.createdAtLabel}</td>
                 </tr>
               ))}
             </tbody>

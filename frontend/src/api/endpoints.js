@@ -1,12 +1,16 @@
 import { apiClient } from './apiClient';
+import { machineService, incidentService, getTickets, getTicketById, updateStatus, createTicket, createWorkOrder } from './services';
 
 export const dashboardApi = {
   getOverview: () => apiClient.get('/dashboard/overview'),
 };
 
 export const inventoryApi = {
-  getMachines: (params) => apiClient.get('/machines', { params }),
-  getMachineById: (id) => apiClient.get(`/machines/${id}`),
+  getMachines: (params) => machineService.getMachines(params),
+  getMachineById: (id) => machineService.getMachineById(id),
+  createMachine: (data) => machineService.createMachine(data),
+  updateMachineById: (id, data) => machineService.updateMachine(id, data),
+  deleteMachineById: (id) => machineService.deleteMachine(id),
 };
 
 export const scannerApi = {
@@ -14,19 +18,21 @@ export const scannerApi = {
 };
 
 export const incidentApi = {
-  uploadIncident: (formData) => apiClient.post('/incidents/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
+  uploadIncident: (formData) => incidentService.uploadIncident(formData),
+  getIncidents: (params) => incidentService.getIncidents(params),
 };
 
 export const aiAnalysisApi = {
-  getAnalysis: (id) => apiClient.get(`/ai/analysis/${id || 'HP-9042'}`),
+    analyzeIncident: (incidentId) =>
+        incidentService.analyzeIncident(incidentId),
 };
 
 export const ticketApi = {
-  getTickets: () => apiClient.get('/tickets'),
-  getTicketById: (id) => apiClient.get(`/tickets/${id}`),
-  updateStatus: (id, status) => apiClient.patch(`/tickets/${id}`, { status }),
+  getTickets,
+  getTicketById,
+  updateStatus,
+  createTicket,
+  createWorkOrder,
 };
 
 export const reportsApi = {

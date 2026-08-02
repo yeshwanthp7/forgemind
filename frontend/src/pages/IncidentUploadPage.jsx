@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom'; // Corrected import for useNavigate
 import {
+  // useNavigate, // Removed incorrect import from lucide-react
   UploadCloud,
   AlertTriangle,
   Send,
@@ -12,37 +14,78 @@ import {
   Sparkles,
   FileText
 } from 'lucide-react';
-import { incidentApi } from '../api/endpoints';
+import { incidentApi, inventoryApi } from '../api/endpoints';
 import { DragDropUploadZone } from '../components/incident/DragDropUploadZone';
 import { UploadProgressIndicator } from '../components/incident/UploadProgressIndicator';
 import { IncidentSuccessCard } from '../components/incident/IncidentSuccessCard';
 
 export const IncidentUploadPage = () => {
   // Form fields
-  const [selectedMachineId, setSelectedMachineId] = useState('HP-9042');
+  const [selectedMachineId, setSelectedMachineId] = useState('');
+  const navigate = useNavigate(); // Initialize useNavigate
   const [severity, setSeverity] = useState('Critical P1');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [files, setFiles] = useState([]);
+  const [machinesList, setMachinesList] = useState([]);
+  const [isMachinesLoading, setIsMachinesLoading] = useState(true);
+  const [pageError, setPageError] = useState(null);
 
   // Upload state machine: 'idle' | 'uploading' | 'success'
   const [uploadState, setUploadState] = useState('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [successResult, setSuccessResult] = useState(null);
+  const [incidentId, setIncidentId] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
 
-  const machines = [
-    { id: 'HP-9042', name: 'Hydraulic Stamping Press 04 (Zone A)' },
-    { id: 'CNC-4081', name: '5-Axis CNC Milling Rig (Zone B)' },
-    { id: 'SB-109', name: 'Steam Boiler System 01 (Zone D)' },
-    { id: 'RA-88', name: 'Welding Robot Arm B (Zone C)' },
-    { id: 'CP-204', name: 'Coolant Recirculation Pump (Zone A)' }
-  ];
+  const machineOptions = useMemo(
+    () => machinesList.map((machine) => ({
+      id: machine._id || machine.machineId || machine.id,
+      label: `${machine.machineId || machine.id} — ${machine.name}`,
+      name: machine.name,
+    })),
+    [machinesList]
+  );
+
+  const selectedMachine = useMemo(
+    () => machinesList.find((machine) => (machine._id || machine.machineId || machine.id) === selectedMachineId),
+    [machinesList, selectedMachineId]
+  );
 
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
   };
+
+  useEffect(() => {
+    const fetchMachines = async () => {
+      setIsMachinesLoading(true);
+      setPageError(null);
+
+      try {
+        const res = await inventoryApi.getMachines();
+        const machineData = Array.isArray(res.data?.data)
+          ? res.data.data
+          : Array.isArray(res.data)
+            ? res.data
+            : [];
+
+        setMachinesList(machineData);
+
+        if (!selectedMachineId && machineData.length > 0) {
+          const firstMachine = machineData[0];
+          setSelectedMachineId(firstMachine._id || firstMachine.machineId || firstMachine.id || '');
+        }
+      } catch (err) {
+        console.error('Failed to load machines:', err);
+        setPageError('Unable to load machines from the backend.');
+      } finally {
+        setIsMachinesLoading(false);
+      }
+    };
+
+    fetchMachines();
+  }, []);
 
   const handleAddFiles = (newFiles) => {
     setFiles((prev) => [...prev, ...newFiles]);
@@ -56,25 +99,50 @@ export const IncidentUploadPage = () => {
     setTitle('');
     setDescription('');
     setFiles([]);
-    setSelectedMachineId('HP-9042');
+    setIncidentId(null);
+    setPageError(null);
+    setSelectedMachineId(machinesList[0]?._id || machinesList[0]?.machineId || machinesList[0]?.id || '');
     setSeverity('Critical P1');
+    setUploadState('idle');
+    setUploadProgress(0);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title.trim()) {
-      showToast('Please enter an Incident Headline Title');
+    const descriptionText = [title.trim(), description.trim()].filter(Boolean).join('\n\n');
+
+    if (!selectedMachineId) {
+      setPageError('Please select a machine.');
       return;
     }
 
+    if (!descriptionText) {
+      setPageError('Please enter an incident description.');
+      return;
+    }
+
+    const imageSource = files.find((file) => file.type?.startsWith('image/') && file.previewUrl);
+    if (!imageSource) {
+      setPageError('Please upload an image for the incident.');
+      return;
+    }
+
+    setPageError(null);
     setUploadState('uploading');
     setUploadProgress(10);
 
     const formData = new FormData();
-    formData.append('title', title);
-    formData.append('description', description);
-    formData.append('machineId', selectedMachineId);
-    formData.append('severity', severity);
+    formData.append('machine', selectedMachineId);
+    formData.append('description', `${title.trim() ? `Title: ${title.trim()}\n\n` : ''}${descriptionText}`);
+
+    try {
+      formData.append("image", imageSource.file);
+    }catch (error) {
+      console.error("Failed to prepare incident image:", error);
+      setPageError("Unable to read the selected image. Please choose another file.");
+      setUploadState("idle");
+      return;
+}
 
     let progressVal = 10;
     const interval = setInterval(() => {
@@ -84,32 +152,44 @@ export const IncidentUploadPage = () => {
     }, 200);
 
     try {
-      await incidentApi.uploadIncident(formData);
+      const res = await incidentApi.uploadIncident(formData);
       clearInterval(interval);
       setUploadProgress(100);
 
+      const createdIncident = res.data?.incident || res.data?.data?.incident || res.data?.data || res.data;
+      
+      // Find the machine's display name from the already loaded machine options
+      const machineDisplayName = machineOptions.find(opt => opt.id === selectedMachineId)?.label || selectedMachineId;
+      const createdIncidentId = createdIncident?._id || createdIncident?.id || null;
+      setIncidentId(createdIncidentId);
+
       setTimeout(() => {
-        const selectedMachine = machines.find((m) => m.id === selectedMachineId);
-        const ticketNum = Math.floor(1000 + Math.random() * 9000);
-        setSuccessResult({
-          ticketId: `WO-${ticketNum}`,
-          machineId: selectedMachineId,
-          machineName: selectedMachine ? selectedMachine.name : selectedMachineId,
-          severity,
-          fileCount: files.length,
-          title
-        });
-        setUploadState('success');
-      }, 300);
+  setSuccessResult({
+    ticketId: createdIncidentId || 'INCIDENT-SAVED',
+    machineId: selectedMachineId,
+    machineName: machineDisplayName,
+    severity,
+    fileCount: 1,
+    title: descriptionText,
+  });
+
+  setUploadState('success');
+}, 300);
+
+setTimeout(() => {
+  navigate(`/ai-analysis/${createdIncidentId}`);
+}, 2000);
     } catch (err) {
       clearInterval(interval);
-      showToast('Upload completed with local payload fallback.');
+      console.error('Incident upload failed:', err);
+      setPageError(err?.response?.data?.message || 'Incident upload failed.');
+      showToast('Upload failed. Please try again.');
       setUploadState('idle');
     }
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="pb-12 space-y-6">
       {/* Toast Notification */}
       <AnimatePresence>
         {toastMessage && (
@@ -125,11 +205,20 @@ export const IncidentUploadPage = () => {
         )}
       </AnimatePresence>
 
+      {pageError && (
+        <div className="flex items-center justify-between gap-4 p-4 text-xs border rounded-2xl bg-rose-950/60 border-rose-500/40 text-rose-200">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{pageError}</span>
+          </div>
+        </div>
+      )}
+
       {/* Header Banner */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/95 to-rose-950/30 border border-slate-800 backdrop-blur-xl shadow-2xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative overflow-hidden">
-        <div className="space-y-2 max-w-3xl relative z-10">
+      <div className="relative flex flex-col items-start justify-between gap-6 p-6 overflow-hidden border shadow-2xl rounded-2xl bg-linear-to-r from-slate-900 via-slate-900/95 to-rose-950/30 border-slate-800 backdrop-blur-xl lg:flex-row lg:items-center">
+        <div className="relative z-10 max-w-3xl space-y-2">
           <div className="flex items-center gap-2 mb-1">
-            <span className="px-3 py-1 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30 text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-2">
+            <span className="flex items-center gap-2 px-3 py-1 font-mono text-xs font-bold tracking-wider uppercase border rounded-full bg-rose-500/15 text-rose-300 border-rose-500/30">
               <UploadCloud className="w-3.5 h-3.5 text-rose-400" />
               Factory Incident & Work Order Logging
             </span>
@@ -138,10 +227,10 @@ export const IncidentUploadPage = () => {
             </span>
           </div>
 
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+          <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
             Upload Equipment Incident & Dispatch Ticket
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+          <p className="text-xs leading-relaxed sm:text-sm text-slate-400">
             Attach thermal scans, acoustic FFT CSV logs, or equipment photos to dispatch emergency maintenance work orders.
           </p>
         </div>
@@ -165,12 +254,12 @@ export const IncidentUploadPage = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onSubmit={handleSubmit}
-            className="grid grid-cols-1 lg:grid-cols-12 gap-6"
+            className="grid grid-cols-1 gap-6 lg:grid-cols-12"
           >
             {/* Left Column (6 cols): Form Metadata */}
-            <div className="lg:col-span-6 space-y-5 p-6 rounded-2xl bg-slate-900/90 border border-slate-800 backdrop-blur-xl shadow-xl">
-              <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-100 font-mono uppercase tracking-wider flex items-center gap-2">
+            <div className="p-6 space-y-5 border shadow-xl lg:col-span-6 rounded-2xl bg-slate-900/90 border-slate-800 backdrop-blur-xl">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <h3 className="flex items-center gap-2 font-mono text-sm font-bold tracking-wider uppercase text-slate-100">
                   <ShieldAlert className="w-4 h-4 text-rose-400" />
                   Incident Classification & Metadata
                 </h3>
@@ -185,19 +274,26 @@ export const IncidentUploadPage = () => {
                 <select
                   value={selectedMachineId}
                   onChange={(e) => setSelectedMachineId(e.target.value)}
+                  disabled={isMachinesLoading || machineOptions.length === 0}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-100 font-mono focus:outline-none focus:border-cyan-500/60"
                 >
-                  {machines.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.id} — {m.name}
-                    </option>
-                  ))}
+                  {isMachinesLoading ? (
+                    <option value="">Loading machines from backend...</option>
+                  ) : machineOptions.length === 0 ? (
+                    <option value="">No machines available</option>
+                  ) : (
+                    machineOptions.map((machine) => (
+                      <option key={machine.id} value={machine.id}>
+                        {machine.label}
+                      </option>
+                    ))
+                  )}
                 </select>
 
                 {/* Quick Selection Chips */}
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   <span className="text-[10px] font-mono text-slate-500 self-center">Quick Select:</span>
-                  {machines.slice(0, 4).map((m) => (
+                  {machineOptions.slice(0, 4).map((m) => (
                     <button
                       key={m.id}
                       type="button"
@@ -247,7 +343,7 @@ export const IncidentUploadPage = () => {
               </div>
 
               {/* Operator Profile */}
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 flex items-center justify-between text-xs font-mono">
+              <div className="flex items-center justify-between p-3 font-mono text-xs border rounded-xl bg-slate-950 border-slate-800/80">
                 <div className="flex items-center gap-2">
                   <User className="w-4 h-4 text-cyan-400" />
                   <span className="text-slate-400">Reporting Inspector:</span>
@@ -259,7 +355,7 @@ export const IncidentUploadPage = () => {
               {/* Detailed Description Textarea */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-mono font-bold text-slate-300 uppercase">
+                  <label className="font-mono text-xs font-bold uppercase text-slate-300">
                     OBSERVATION DETAILS / NOTES
                   </label>
                   <span className="text-[10px] text-slate-500 font-mono">
@@ -272,16 +368,16 @@ export const IncidentUploadPage = () => {
                   placeholder="Describe acoustic noises, thermal camera readings, fluid leaks, or operator actions taken..."
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-100 focus:outline-none focus:border-cyan-500/60 leading-relaxed"
+                  className="w-full p-3 text-xs leading-relaxed border bg-slate-950 border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-cyan-500/60"
                 />
               </div>
             </div>
 
             {/* Right Column (6 cols): Drag & Drop Zone + Gallery */}
-            <div className="lg:col-span-6 space-y-5 p-6 rounded-2xl bg-slate-900/90 border border-slate-800 backdrop-blur-xl shadow-xl flex flex-col justify-between">
+            <div className="flex flex-col justify-between p-6 space-y-5 border shadow-xl lg:col-span-6 rounded-2xl bg-slate-900/90 border-slate-800 backdrop-blur-xl">
               <div className="space-y-4">
-                <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-slate-100 font-mono uppercase tracking-wider flex items-center gap-2">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <h3 className="flex items-center gap-2 font-mono text-sm font-bold tracking-wider uppercase text-slate-100">
                     <UploadCloud className="w-4 h-4 text-cyan-400" />
                     Attach Evidence & Media Files
                   </h3>
@@ -305,7 +401,7 @@ export const IncidentUploadPage = () => {
               </div>
 
               {/* Submit Toolbar */}
-              <div className="pt-4 border-t border-slate-800 flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={handleClearForm}
@@ -317,8 +413,8 @@ export const IncidentUploadPage = () => {
 
                 <button
                   type="submit"
-                  disabled={uploadState === 'uploading'}
-                  className="px-6 py-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-600/30 transition hover:scale-[1.02]"
+                  disabled={uploadState === 'uploading' || isMachinesLoading || !selectedMachineId}
+                  className="px-6 py-3 rounded-xl bg-linear-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-2 shadow-lg shadow-rose-600/30 transition hover:scale-[1.02]"
                 >
                   <Send className="w-4 h-4" />
                   <span>Upload & Dispatch Incident Work Order</span>
@@ -328,6 +424,10 @@ export const IncidentUploadPage = () => {
           </motion.form>
         )}
       </AnimatePresence>
+
+      {incidentId && uploadState === 'success' && (
+        <div className="sr-only">Created incident id: {incidentId}</div>
+      )}
     </div>
   );
 };

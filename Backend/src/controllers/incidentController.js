@@ -1,5 +1,7 @@
+const mongoose = require("mongoose");
 const Incident = require("../models/Incident");
 const { analyzeIncident } = require("../services/incidentService");
+
 exports.createIncident = async(req,res) =>{
     try{
         if(!req.file){
@@ -31,7 +33,8 @@ exports.createIncident = async(req,res) =>{
 
 exports.getIncidents = async(req,res) =>{
     try{
-        const incidents = await Incident.find();
+        const incidents = await Incident.find()
+            .populate("machine", "name machineId location department");
         res.status(200).json({
             success:true,
             count:incidents.length,
@@ -50,7 +53,15 @@ exports.getIncidents = async(req,res) =>{
 // Get a single incident by ID
 exports.getIncidentById = async(req,res) =>{
     try{
-        const incident = await Incident.findById(req.params.id);
+        const { id } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid Incident ID: "${id}"`,
+            });
+        }
+        const incident = await Incident.findById(id)
+            .populate("machine", "name machineId location department");
         if(!incident){
             return res.status(404).json({
                 success:false,
@@ -73,7 +84,14 @@ exports.getIncidentById = async(req,res) =>{
 
 exports.updateIncident = async(req,res)=>{
     try{
-        const incident = await Incident.findByIdAndUpdate(req.params.id, req.body, {new:true});
+        const { id } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid Incident ID: "${id}"`,
+            });
+        }
+        const incident = await Incident.findByIdAndUpdate(id, req.body, {new:true});
         if(!incident){
             return res.status(404).json({
                 success:false,
@@ -95,7 +113,14 @@ exports.updateIncident = async(req,res)=>{
 // Delete an incident
 exports.deleteIncident = async(req,res)=>{
     try{
-        const incident = await Incident.findByIdAndDelete(req.params.id);
+        const { id } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid Incident ID: "${id}"`,
+            });
+        }
+        const incident = await Incident.findByIdAndDelete(id);
         if(!incident){
             return res.status(404).json({
                 success:false,
@@ -116,19 +141,38 @@ exports.deleteIncident = async(req,res)=>{
 
 // analyze an incident
 
-exports.analyzeIncident = async(req,res) =>{
-    try{
-        const {id} = req.params;
+exports.analyzeIncident = async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: `Invalid Incident ID: "${id}"`,
+            });
+        }
         const result = await analyzeIncident(id);
+        const aiAnalysis = result?.aiAnalysis || result?.incident?.aiAnalysis || null;
+        const incident = result?.incident || result;
+
         res.status(200).json({
-            success:true,
-            data: result,
-        
-        })
-    }catch(err){
-        res.status(500).json({
-            success:false,
-            message:err.message,
+            success: true,
+            aiAnalysis,
+            incident,
+            ticket: result?.ticket || null,
+            data: {
+                ...result,
+                aiAnalysis,
+                incident,
+                image: incident?.image,
+                machine: incident?.machine,
+            },
+        });
+    } catch (err) {
+        console.error("AI Analysis Controller Error:", err);
+        const status = err.message && err.message.includes("not found") ? 404 : 500;
+        res.status(status).json({
+            success: false,
+            message: err.message || "Failed to analyze incident",
         });
     }
-}
+};

@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Ticket = require('../models/Ticket');
 const Incident = require('../models/Incident'); // Needed for population
 const Machine = require('../models/Machine');   // Needed for population
@@ -23,11 +24,12 @@ exports.createTicket = async (ticketData) => {
  * @returns {Promise<Array<object>>} An array of ticket objects.
  * @throws {Error} If fetching tickets fails.
  */
-exports.getAllTickets = async () => {
+exports.getAllTickets = async (filters = {}) => {
     try {
-        const tickets = await Ticket.find()
+        const tickets = await Ticket.find(filters)
             .populate('incident', 'description image aiAnalysis') // Populate incident details
-            .populate('machine', 'name location department') // Populate machine details
+            .populate('machine', 'name machineId location department type telemetry healthScore temperature pressure') // Populate machine details
+            .sort({ createdAt: -1 })
             .lean(); // Return plain JavaScript objects
         return tickets;
     } catch (error) {
@@ -36,7 +38,7 @@ exports.getAllTickets = async () => {
 };
 
 /**
- * Retrieves a single ticket by its ID.
+ * Retrieves a single ticket by its ID (either MongoDB _id or WO-XXXX ticketId).
  * Populates incident and machine details.
  * @param {string} ticketId - The ID of the ticket to retrieve.
  * @returns {Promise<object|null>} The ticket object if found, otherwise null.
@@ -44,13 +46,57 @@ exports.getAllTickets = async () => {
  */
 exports.getTicketById = async (ticketId) => {
     try {
-        const ticket = await Ticket.findById(ticketId)
-            .populate('incident', 'description image aiAnalysis')
-            .populate('machine', 'name location department')
-            .lean();
+        let ticket = null;
+        if (mongoose.Types.ObjectId.isValid(ticketId)) {
+            ticket = await Ticket.findById(ticketId)
+                .populate('incident', 'description image aiAnalysis')
+                .populate('machine', 'name machineId location department type telemetry healthScore temperature pressure')
+                .lean();
+        }
+        if (!ticket) {
+            ticket = await Ticket.findOne({ ticketId: ticketId })
+                .populate('incident', 'description image aiAnalysis')
+                .populate('machine', 'name machineId location department type telemetry healthScore temperature pressure')
+                .lean();
+        }
         return ticket;
     } catch (error) {
         throw new Error(`Failed to retrieve ticket: ${error.message}`);
+    }
+};
+
+/**
+ * Updates an existing ticket status by its ID (either MongoDB _id or WO-XXXX ticketId).
+ * @param {string} ticketId - The ID of the ticket to update.
+ * @param {string} status - New status.
+ * @returns {Promise<object|null>} The updated ticket object.
+ * @throws {Error} If updating the ticket fails.
+ */
+exports.updateTicketStatus = async (ticketId, status) => {
+    try {
+        let query = mongoose.Types.ObjectId.isValid(ticketId) ? { _id: ticketId } : { ticketId: ticketId };
+        let ticket = await Ticket.findOne(query);
+        if (!ticket) {
+            throw new Error('Ticket not found');
+        }
+
+        ticket.status = status;
+        if (status === 'Resolved' && !ticket.completedAt) {
+            ticket.completedAt = new Date();
+        } else if (status !== 'Resolved' && status !== 'Closed' && ticket.completedAt) {
+            ticket.completedAt = null;
+        }
+
+        await ticket.save();
+
+        const populatedTicket = await Ticket.findById(ticket._id)
+            .populate('incident', 'description image aiAnalysis')
+            .populate('machine', 'name machineId location department type telemetry healthScore temperature pressure')
+            .lean();
+
+        return populatedTicket;
+    } catch (error) {
+        throw new Error(`Failed to update ticket status: ${error.message}`);
     }
 };
 
@@ -63,9 +109,10 @@ exports.getTicketById = async (ticketId) => {
  */
 exports.updateTicket = async (ticketId, updateData) => {
     try {
-        const updatedTicket = await Ticket.findByIdAndUpdate(ticketId, updateData, { new: true, runValidators: true })
+        let query = mongoose.Types.ObjectId.isValid(ticketId) ? { _id: ticketId } : { ticketId: ticketId };
+        const updatedTicket = await Ticket.findOneAndUpdate(query, updateData, { new: true, runValidators: true })
             .populate('incident', 'description image aiAnalysis')
-            .populate('machine', 'name location department')
+            .populate('machine', 'name machineId location department type telemetry healthScore temperature pressure')
             .lean();
         return updatedTicket;
     } catch (error) {
@@ -81,7 +128,8 @@ exports.updateTicket = async (ticketId, updateData) => {
  */
 exports.deleteTicket = async (ticketId) => {
     try {
-        const deletedTicket = await Ticket.findByIdAndDelete(ticketId);
+        let query = mongoose.Types.ObjectId.isValid(ticketId) ? { _id: ticketId } : { ticketId: ticketId };
+        const deletedTicket = await Ticket.findOneAndDelete(query);
         return deletedTicket;
     } catch (error) {
         throw new Error(`Failed to delete ticket: ${error.message}`);
@@ -91,13 +139,13 @@ exports.deleteTicket = async (ticketId) => {
 /**
  * Generates ticket priority based on AI risk score.
  * @param {number} riskScore - The risk score from AI analysis.
- * @returns {string} The calculated priority ('Low', 'Medium', 'High', 'Critical').
+ * @returns {string} The calculated priority ('P1 Critical', 'P2 High', 'P3 Medium', 'P4 Low').
  */
 const generatePriority = (riskScore) => {
-    if (riskScore >= 90) return 'Critical';
-    if (riskScore >= 75) return 'High';
-    if (riskScore >= 50) return 'Medium';
-    return 'Low';
+    if (riskScore >= 90) return 'P1 Critical';
+    if (riskScore >= 75) return 'P2 High';
+    if (riskScore >= 50) return 'P3 Medium';
+    return 'P4 Low';
 };
 
 /**
@@ -121,15 +169,22 @@ exports.createTicketFromIncident = async (incident, aiAnalysis) => {
 
         const ticketData = {
             incident: incident._id,
-            machine: incident.machine, // Assuming incident object has a machine field
-            title: `Incident #${incident._id.toString().slice(-6)} - ${priority} Priority`, // Example title
-            description: aiAnalysis.recommendation,
+            machine: incident.machine,
+            title: `Incident #${incident._id.toString().slice(-6)} - ${priority}`,
+            description: incident.description || aiAnalysis.recommendation || 'Automated predictive maintenance ticket',
             priority: priority,
-            assignedTo: "Maintenance Team", // As per requirement
+            assignedTo: "Maintenance Team",
             status: "Open",
-            estimatedDowntime: aiAnalysis.estimatedDowntime || 'N/A', // Assuming AI might provide this, or default
+            estimatedDowntime: aiAnalysis.estimatedDowntime || (aiAnalysis.riskScore >= 80 ? '4.5 Hours' : '1.5 Hours'),
             dueDate: dueDate,
-            createdBy: "AI" // As per requirement
+            createdBy: "AI",
+            aiAnalysis: {
+                severity: aiAnalysis.severity || 'Unknown',
+                riskScore: aiAnalysis.riskScore || 0,
+                rootCause: aiAnalysis.rootCause || 'N/A',
+                recommendation: aiAnalysis.recommendation || 'N/A',
+                confidence: aiAnalysis.confidence || 0,
+            }
         };
 
         const newTicket = await Ticket.create(ticketData);

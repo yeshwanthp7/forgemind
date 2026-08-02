@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { apiClient } from '../api/apiClient';
 
 export const DEMO_ACCOUNTS = [
   {
@@ -34,13 +35,24 @@ export const DEMO_ACCOUNTS = [
 ];
 
 const AuthContext = createContext({
-  isAuthenticated: true,
+  isAuthenticated: false,
   user: null,
   loading: false,
   login: async () => {},
+  register: async () => {},
   logout: () => {},
   selectDemoAccount: () => {}
 });
+
+// Map backend role values to frontend display roles used in routing
+const normalizeRole = (backendRole) => {
+  if (!backendRole) return backendRole;
+  const r = String(backendRole).toLowerCase();
+  if (r === 'worker') return 'Worker';
+  if (r === 'manager' || r === 'admin' || r === 'plant_manager') return 'Plant Manager';
+  if (r.includes('safety')) return 'Safety Officer';
+  return backendRole;
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
@@ -49,44 +61,78 @@ export const AuthProvider = ({ children }) => {
       try {
         return JSON.parse(saved);
       } catch (e) {
-        // Fallback default user
+        return null;
       }
     }
-    return DEMO_ACCOUNTS[2]; // Default to Plant Manager for initial dashboard viewing
+    return null;
   });
 
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    const savedAuth = localStorage.getItem('forgemind-auth');
-    return savedAuth !== null ? JSON.parse(savedAuth) : true;
+  const [token, setToken] = useState(() => {
+    return localStorage.getItem('forgemind-token') || null;
   });
+
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !!localStorage.getItem('forgemind-token'));
 
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (user) {
       localStorage.setItem('forgemind-user', JSON.stringify(user));
+    } else {
+      localStorage.removeItem('forgemind-user');
     }
+
+    if (token) {
+      localStorage.setItem('forgemind-token', token);
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    } else {
+      localStorage.removeItem('forgemind-token');
+      delete apiClient.defaults.headers.common['Authorization'];
+    }
+
     localStorage.setItem('forgemind-auth', JSON.stringify(isAuthenticated));
-  }, [user, isAuthenticated]);
+  }, [user, token, isAuthenticated]);
 
   const login = async (email, password) => {
     setLoading(true);
-    // Simulate network authentication request
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    try {
+      const res = await apiClient.post('/auth/login', { email, password });
+      const { user: u, token: t } = res.data;
+      // Normalize backend role to frontend display role
+      const normalizedRole = normalizeRole(u.role);
+      const userWithRole = { ...u, role: normalizedRole };
+      setUser(userWithRole);
+      setToken(t);
+      setIsAuthenticated(true);
+      setLoading(false);
+      return userWithRole;
+    } catch (err) {
+      setLoading(false);
+      throw err;
+    }
+  };
 
-    const matchedAccount = DEMO_ACCOUNTS.find(
-      (acc) => acc.email.toLowerCase() === (email || '').toLowerCase()
-    ) || DEMO_ACCOUNTS[2];
-
-    setUser(matchedAccount);
-    setIsAuthenticated(true);
-    setLoading(false);
-    return matchedAccount;
+  const register = async (payload) => {
+    setLoading(true);
+    try {
+      const res = await apiClient.post('/auth/register', payload);
+      const { user: u, token: t } = res.data;
+      const normalizedRole = normalizeRole(u.role);
+      const userWithRole = { ...u, role: normalizedRole };
+      setToken(t);
+      setIsAuthenticated(true);
+      setLoading(false);
+      return userWithRole;
+    } catch (err) {
+      setLoading(false);
+      throw err;
+    }
   };
 
   const selectDemoAccount = (demoAccount) => {
+    // Fill form fields in the UI via Demo buttons — do not auto-login here.
+    // kept for compatibility with UI helpers
     setUser(demoAccount);
-    setIsAuthenticated(true);
   };
 
   const logout = () => {
@@ -103,6 +149,7 @@ export const AuthProvider = ({ children }) => {
         user,
         loading,
         login,
+        register,
         logout,
         selectDemoAccount,
         demoAccounts: DEMO_ACCOUNTS

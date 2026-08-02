@@ -221,21 +221,21 @@ export const AppRoutes = () => {
           }
         />
         <Route
-          path="analytics"
+        path="analytics/:incidentId"
           element={
-            <ProtectedRoute allowedRoles={['Safety Officer', 'Plant Manager']}>
-              <AiAnalysisPage />
-            </ProtectedRoute>
-          }
-        />
+          <ProtectedRoute allowedRoles={['Safety Officer', 'Plant Manager']}>
+            <AiAnalysisPage />
+          </ProtectedRoute>
+      }
+    />
         <Route
-          path="ai-analysis"
-          element={
-            <ProtectedRoute allowedRoles={['Safety Officer', 'Plant Manager']}>
-              <AiAnalysisPage />
-            </ProtectedRoute>
-          }
-        />
+        path="ai-analysis/:incidentId"
+        element={
+          <ProtectedRoute allowedRoles={['Safety Officer', 'Plant Manager']}>
+            <AiAnalysisPage />
+          </ProtectedRoute>
+        }
+/>
         <Route
           path="ai-assistant"
           element={

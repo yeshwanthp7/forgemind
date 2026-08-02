@@ -45,15 +45,94 @@ export const MachineDetailPage = () => {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
+  const formatDate = (value) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toISOString().slice(0, 10);
+  };
+
+  const getDaysSince = (value) => {
+    if (!value) return 'Recently';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+
+    const diffMs = Date.now() - date.getTime();
+    const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+    return diffDays === 0 ? 'Today' : `${diffDays} days ago`;
+  };
+
+  const mapStatus = (status) => {
+    if (status === 'active') return 'optimal';
+    if (status === 'inactive') return 'offline';
+    if (status === 'maintenance') return 'maintenance';
+    return status || 'offline';
+  };
+
+  const buildMachineDetail = (machine) => {
+    const machineId = machine.machineId || machine.id || machine._id || id;
+    const mockDetail = getMachineDetail(machineId) || getMachineDetail(id) || {};
+    const status = mapStatus(machine.status || mockDetail.status);
+    const fallbackHealthScore = status === 'optimal' ? 95 : status === 'maintenance' ? 45 : status === 'warning' ? 62 : 24;
+
+    return {
+      ...mockDetail,
+      mongoId: machine._id || machine.mongoId || null,
+      id: machineId,
+      name: machine.name || mockDetail.name || machineId,
+      type: mockDetail.type || machine.department || 'General Equipment',
+      zone: mockDetail.zone || machine.location || machine.department || 'Unassigned',
+      status,
+      healthScore: mockDetail.healthScore ?? fallbackHealthScore,
+      rulPercentage: mockDetail.rulPercentage ?? fallbackHealthScore,
+      riskLevel: mockDetail.riskLevel ?? (status === 'optimal' ? 'Nominal P4' : status === 'maintenance' ? 'Warning P2' : 'Critical P1'),
+      temperature: mockDetail.temperature ?? (status === 'optimal' ? 68 : status === 'maintenance' ? 92 : 104),
+      temperatureBaseline: mockDetail.temperatureBaseline ?? 70,
+      pressure: mockDetail.pressure ?? (status === 'optimal' ? 10 : 12.5),
+      pressureBaseline: mockDetail.pressureBaseline ?? 10,
+      humidity: mockDetail.humidity ?? 45,
+      humidityBaseline: mockDetail.humidityBaseline ?? 45,
+      vibration: mockDetail.vibration || 'N/A',
+      vibrationValue: mockDetail.vibrationValue ?? 0,
+      powerConsumption: mockDetail.powerConsumption || 'N/A',
+      powerValue: mockDetail.powerValue ?? 0,
+      manufacturer: machine.manufacturer || mockDetail.manufacturer || 'Unknown',
+      model: mockDetail.model || machine.department || 'Unknown',
+      serialNumber: mockDetail.serialNumber || machine.machineId || machine._id || 'N/A',
+      installationDate: mockDetail.installationDate || formatDate(machine.createdAt || machine.lastMaintained),
+      operatingHours: mockDetail.operatingHours ?? 0,
+      image: mockDetail.image || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800&auto=format&fit=crop&q=80',
+      lastMaintenance: formatDate(machine.lastMaintained || mockDetail.lastMaintenance),
+      lastMaintenanceDays: getDaysSince(machine.lastMaintained || mockDetail.lastMaintenance),
+      nextMaintenance: mockDetail.nextMaintenance || '',
+      criticalComponent: mockDetail.criticalComponent || 'General inspection pending',
+      maintenanceHistory: mockDetail.maintenanceHistory || [],
+      previousIncidents: mockDetail.previousIncidents || [],
+      timeline: mockDetail.timeline || [],
+    };
+  };
+
   const fetchMachineDetail = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await inventoryApi.getMachineById(id || 'HP-9042');
-      setMachine(res.data || getMachineDetail(id || 'HP-9042'));
+      const res = await inventoryApi.getMachines();
+      const machines = Array.isArray(res.data?.data)
+        ? res.data.data
+        : Array.isArray(res.data)
+          ? res.data
+          : [];
+      const matchedMachine = machines.find((item) => item._id === id || item.machineId === id);
+
+      if (matchedMachine) {
+        setMachine(buildMachineDetail(matchedMachine));
+        return;
+      }
+
+      setMachine(buildMachineDetail({ machineId: id }));
     } catch (err) {
       console.warn('Machine Detail Axios fallback:', err);
-      setMachine(getMachineDetail(id || 'HP-9042'));
+      setMachine(buildMachineDetail({ machineId: id }));
     } finally {
       setIsLoading(false);
     }
@@ -86,7 +165,7 @@ export const MachineDetailPage = () => {
       case 'maintenance':
         return (
           <span className="px-3 py-1 rounded-full text-xs font-bold font-mono bg-purple-500/20 text-purple-300 border border-purple-500/40 flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-purple-400" />
+            <span className="w-2 h-2 bg-purple-400 rounded-full" />
             IN MAINTENANCE
           </span>
         );
@@ -115,10 +194,10 @@ export const MachineDetailPage = () => {
 
   if (isLoading) {
     return (
-      <div className="space-y-6 animate-pulse p-4">
-        <div className="h-8 w-48 bg-slate-900 rounded-xl" />
-        <div className="h-32 bg-slate-900 border border-slate-800 rounded-2xl" />
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="p-4 space-y-6 animate-pulse">
+        <div className="w-48 h-8 bg-slate-900 rounded-xl" />
+        <div className="h-32 border bg-slate-900 border-slate-800 rounded-2xl" />
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
           <div className="lg:col-span-5 h-80 bg-slate-900 rounded-2xl" />
           <div className="lg:col-span-7 h-80 bg-slate-900 rounded-2xl" />
         </div>
@@ -129,7 +208,7 @@ export const MachineDetailPage = () => {
   if (!machine) return null;
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="pb-12 space-y-6">
       {/* Toast Notification */}
       <AnimatePresence>
         {toastMessage && (
@@ -155,14 +234,14 @@ export const MachineDetailPage = () => {
           <span>Back to Machine Inventory</span>
         </button>
 
-        <span className="text-xs font-mono text-slate-500">
+        <span className="font-mono text-xs text-slate-500">
           ISO-45001 Node Diagnostic Stream
         </span>
       </div>
 
       {/* Error Alert with Retry */}
       {error && (
-        <div className="p-4 rounded-2xl bg-rose-950/60 border border-rose-500/40 text-rose-200 text-xs flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-4 p-4 text-xs border rounded-2xl bg-rose-950/60 border-rose-500/40 text-rose-200">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
             <span>{error}</span>
@@ -182,9 +261,9 @@ export const MachineDetailPage = () => {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-950 border border-slate-800 backdrop-blur-xl shadow-2xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative overflow-hidden"
+        className="relative flex flex-col items-start justify-between gap-6 p-6 overflow-hidden border shadow-2xl rounded-2xl bg-linear-to-r from-slate-900 via-slate-900/95 to-slate-950 border-slate-800 backdrop-blur-xl lg:flex-row lg:items-center"
       >
-        <div className="space-y-2 max-w-3xl relative z-10">
+        <div className="relative z-10 max-w-3xl space-y-2">
           <div className="flex flex-wrap items-center gap-2.5">
             {getStatusBadge(machine.status)}
             <span className="px-2 py-0.5 rounded bg-slate-800 text-cyan-400 font-mono text-xs font-bold border border-slate-700">
@@ -195,11 +274,11 @@ export const MachineDetailPage = () => {
             </span>
           </div>
 
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+          <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
             {machine.name}
           </h1>
 
-          <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 font-mono">
+          <div className="flex flex-wrap items-center gap-4 font-mono text-xs text-slate-400">
             <span className="flex items-center gap-1">
               <MapPin className="w-3.5 h-3.5 text-cyan-400" />
               {machine.zone}
@@ -210,7 +289,7 @@ export const MachineDetailPage = () => {
         </div>
 
         {/* Action Buttons Toolbar */}
-        <div className="flex flex-wrap items-center gap-3 relative z-10 shrink-0">
+        <div className="relative z-10 flex flex-wrap items-center gap-3 shrink-0">
           <button
             onClick={() => setIsUploadModalOpen(true)}
             className="px-4 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-2 transition hover:scale-[1.02] shadow-lg"
@@ -221,7 +300,7 @@ export const MachineDetailPage = () => {
 
           <button
             onClick={() => setIsAiModalOpen(true)}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-2 shadow-[0_0_25px_rgba(6,182,212,0.35)] transition hover:scale-[1.02]"
+            className="px-4 py-2.5 rounded-xl bg-linear-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-2 shadow-[0_0_25px_rgba(6,182,212,0.35)] transition hover:scale-[1.02]"
           >
             <Sparkles className="w-4 h-4 text-white animate-spin" style={{ animationDuration: '5s' }} />
             <span>Analyze with AI</span>
@@ -230,22 +309,22 @@ export const MachineDetailPage = () => {
       </motion.div>
 
       {/* Main Grid: Left Column Visual + Specs / Right Column 7 Metric Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         {/* Left Column (4 cols on desktop): Image & Asset Details */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="space-y-6 lg:col-span-5">
           {/* Machine Image Card */}
-          <div className="rounded-2xl bg-slate-900 border border-slate-800 p-3 backdrop-blur-xl shadow-xl overflow-hidden group">
-            <div className="relative h-64 sm:h-72 w-full rounded-xl overflow-hidden bg-slate-950 border border-slate-800">
+          <div className="p-3 overflow-hidden border shadow-xl rounded-2xl bg-slate-900 border-slate-800 backdrop-blur-xl group">
+            <div className="relative w-full h-64 overflow-hidden border sm:h-72 rounded-xl bg-slate-950 border-slate-800">
               <img
                 src={machine.image}
                 alt={machine.name}
-                className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                className="object-cover w-full h-full transition duration-500 group-hover:scale-105"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-80" />
-              <div className="absolute bottom-3 left-3 right-3 flex justify-between items-end text-xs font-mono">
+              <div className="absolute inset-0 bg-linear-to-t from-slate-950 via-transparent to-transparent opacity-80" />
+              <div className="absolute flex items-end justify-between font-mono text-xs bottom-3 left-3 right-3">
                 <div>
                   <span className="text-[10px] text-cyan-400 block font-bold">MODEL & SERIES</span>
-                  <span className="font-bold text-white text-sm">{machine.model}</span>
+                  <span className="text-sm font-bold text-white">{machine.model}</span>
                 </div>
                 <span className="px-2 py-0.5 rounded bg-slate-900/90 text-slate-300 border border-slate-700 text-[10px]">
                   {machine.operatingHours.toLocaleString()} Operating Hrs
@@ -255,12 +334,12 @@ export const MachineDetailPage = () => {
           </div>
 
           {/* Asset Specs Card */}
-          <div className="p-5 rounded-2xl bg-slate-900 border border-slate-800 backdrop-blur-xl shadow-xl space-y-3">
-            <h3 className="text-sm font-bold text-slate-100 font-mono uppercase tracking-wider flex items-center gap-2">
+          <div className="p-5 space-y-3 border shadow-xl rounded-2xl bg-slate-900 border-slate-800 backdrop-blur-xl">
+            <h3 className="flex items-center gap-2 font-mono text-sm font-bold tracking-wider uppercase text-slate-100">
               <Cpu className="w-4 h-4 text-cyan-400" />
               <span>Hardware Asset Specifications</span>
             </h3>
-            <div className="grid grid-cols-2 gap-3 text-xs font-mono">
+            <div className="grid grid-cols-2 gap-3 font-mono text-xs">
               <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
                 <span className="text-slate-400 block text-[10px]">CATEGORY</span>
                 <span className="font-bold text-slate-200">{machine.type}</span>
@@ -282,39 +361,39 @@ export const MachineDetailPage = () => {
         </div>
 
         {/* Right Column (7 cols on desktop): Telemetry Metrics Grid */}
-        <div className="lg:col-span-7 space-y-6">
+        <div className="space-y-6 lg:col-span-7">
           <div className="flex items-center justify-between px-1">
-            <h2 className="text-xs font-mono font-bold uppercase tracking-widest text-slate-400">
+            <h2 className="font-mono text-xs font-bold tracking-widest uppercase text-slate-400">
               Live Sensor Telemetry Matrix
             </h2>
             <span className="text-[11px] text-cyan-400 font-mono">Channel Frequency 10 kHz</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {/* 1. Health Score Card */}
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 backdrop-blur-xl shadow-xl space-y-2">
+            <div className="p-4 space-y-2 border shadow-xl rounded-2xl bg-slate-900 border-slate-800 backdrop-blur-xl">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-semibold text-slate-400">Health Score</span>
+                <span className="font-mono text-xs font-semibold text-slate-400">Health Score</span>
                 <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   <Activity className="w-4 h-4" />
                 </div>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-extrabold text-white font-mono">{machine.healthScore}%</span>
+                <span className="font-mono text-3xl font-extrabold text-white">{machine.healthScore}%</span>
                 <span className="text-[11px] font-mono text-slate-400">Index</span>
               </div>
-              <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
+              <div className="w-full h-2 overflow-hidden border rounded-full bg-slate-950 border-slate-800">
                 <div
-                  className={`h-full bg-gradient-to-r ${getHealthColor(machine.healthScore)}`}
+                  className={`h-full bg-linear-to-r ${getHealthColor(machine.healthScore)}`}
                   style={{ width: `${machine.healthScore}%` }}
                 />
               </div>
             </div>
 
             {/* 2. Risk Level Card */}
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 backdrop-blur-xl shadow-xl space-y-2">
+            <div className="p-4 space-y-2 border shadow-xl rounded-2xl bg-slate-900 border-slate-800 backdrop-blur-xl">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-semibold text-slate-400">Risk Level</span>
+                <span className="font-mono text-xs font-semibold text-slate-400">Risk Level</span>
                 <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
                   <ShieldAlert className="w-4 h-4" />
                 </div>
@@ -332,9 +411,9 @@ export const MachineDetailPage = () => {
             </div>
 
             {/* 3. Temperature */}
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 backdrop-blur-xl shadow-xl space-y-2">
+            <div className="p-4 space-y-2 border shadow-xl rounded-2xl bg-slate-900 border-slate-800 backdrop-blur-xl">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-semibold text-slate-400">Temperature</span>
+                <span className="font-mono text-xs font-semibold text-slate-400">Temperature</span>
                 <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20">
                   <Thermometer className="w-4 h-4" />
                 </div>
@@ -350,58 +429,58 @@ export const MachineDetailPage = () => {
             </div>
 
             {/* 4. Hydraulic Pressure */}
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 backdrop-blur-xl shadow-xl space-y-2">
+            <div className="p-4 space-y-2 border shadow-xl rounded-2xl bg-slate-900 border-slate-800 backdrop-blur-xl">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-semibold text-slate-400">Pressure</span>
+                <span className="font-mono text-xs font-semibold text-slate-400">Pressure</span>
                 <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
                   <Gauge className="w-4 h-4" />
                 </div>
               </div>
               <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-extrabold text-cyan-300 font-mono">{machine.pressure} Bar</span>
+                <span className="font-mono text-2xl font-extrabold text-cyan-300">{machine.pressure} Bar</span>
               </div>
               <p className="text-[10px] text-slate-400 font-mono">Baseline: {machine.pressureBaseline} Bar</p>
             </div>
 
             {/* 5. Humidity */}
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 backdrop-blur-xl shadow-xl space-y-2">
+            <div className="p-4 space-y-2 border shadow-xl rounded-2xl bg-slate-900 border-slate-800 backdrop-blur-xl">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-semibold text-slate-400">Relative Humidity</span>
+                <span className="font-mono text-xs font-semibold text-slate-400">Relative Humidity</span>
                 <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
                   <Droplets className="w-4 h-4" />
                 </div>
               </div>
               <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-extrabold text-blue-300 font-mono">{machine.humidity}% RH</span>
+                <span className="font-mono text-2xl font-extrabold text-blue-300">{machine.humidity}% RH</span>
               </div>
               <p className="text-[10px] text-slate-400 font-mono">Baseline: {machine.humidityBaseline}%</p>
             </div>
 
             {/* 6. Vibration Acceleration */}
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 backdrop-blur-xl shadow-xl space-y-2">
+            <div className="p-4 space-y-2 border shadow-xl rounded-2xl bg-slate-900 border-slate-800 backdrop-blur-xl">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-semibold text-slate-400">Vibration FFT</span>
+                <span className="font-mono text-xs font-semibold text-slate-400">Vibration FFT</span>
                 <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
                   <Activity className="w-4 h-4" />
                 </div>
               </div>
               <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-extrabold text-purple-300 font-mono">{machine.vibration}</span>
+                <span className="font-mono text-2xl font-extrabold text-purple-300">{machine.vibration}</span>
               </div>
               <p className="text-[10px] text-slate-400 font-mono">ISO Limit: &lt;4.5 mm/s</p>
             </div>
 
             {/* 7. Power Consumption */}
-            <div className="sm:col-span-2 lg:col-span-3 p-4 rounded-2xl bg-slate-900 border border-slate-800 backdrop-blur-xl shadow-xl space-y-2">
+            <div className="p-4 space-y-2 border shadow-xl sm:col-span-2 lg:col-span-3 rounded-2xl bg-slate-900 border-slate-800 backdrop-blur-xl">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-semibold text-slate-400">Electrical Power Consumption Draw</span>
+                <span className="font-mono text-xs font-semibold text-slate-400">Electrical Power Consumption Draw</span>
                 <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
                   <Zap className="w-4 h-4" />
                 </div>
               </div>
               <div className="flex items-baseline justify-between">
-                <span className="text-2xl font-extrabold text-amber-300 font-mono">{machine.powerConsumption}</span>
-                <span className="text-xs font-mono text-slate-400">Continuous 3-Phase Load</span>
+                <span className="font-mono text-2xl font-extrabold text-amber-300">{machine.powerConsumption}</span>
+                <span className="font-mono text-xs text-slate-400">Continuous 3-Phase Load</span>
               </div>
             </div>
           </div>

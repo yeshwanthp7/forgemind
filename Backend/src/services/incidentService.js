@@ -1,43 +1,51 @@
+const mongoose = require('mongoose');
 const Incident = require('../models/Incident');
-const ticketService = require('./ticketServices'); // Import the ticket service
-
-const {analyzeImage} = require('./geminiService');
+const Ticket = require('../models/Ticket');
+const ticketService = require('./ticketServices');
+const { analyzeImage } = require('./geminiService');
 
 /**
  * Analyzes an incident using Gemini AI and optionally creates a ticket based on risk score.
  * @param {string} incidentId - The ID of the incident to analyze.
- * @returns {Promise<{incident: object, ticket: object|null}>} An object containing the updated incident and the created ticket (if any).
- * @throws {Error} If the incident is not found or analysis fails.
+ * @returns {Promise<{incident: object, ticket: object|null, aiAnalysis: object}>}
  */
-exports.analyzeIncident = async(incidentId) => {
+exports.analyzeIncident = async (incidentId) => {
     try {
-        const incident = await Incident.findById(incidentId);
-        if(!incident){
-            throw new Error('Incident not found');
+        if (!incidentId || !mongoose.Types.ObjectId.isValid(incidentId)) {
+            throw new Error(`Invalid Incident ID: "${incidentId}"`);
+        }
+
+        const incident = await Incident.findById(incidentId).populate('machine');
+        if (!incident) {
+            throw new Error(`Incident not found with ID: ${incidentId}`);
         }
 
         const imagePath = incident.image;
         const aiResponse = await analyzeImage(imagePath);
 
         incident.aiAnalysis = aiResponse;
-
         await incident.save();
 
         let createdTicket = null;
-        // Automatically create a ticket after AI analysis if risk score is 80 or higher
-        if (incident.aiAnalysis && incident.aiAnalysis.riskScore >= 80 && incident.aiAnalysis.recommendation) {
-            console.log(`AI analysis complete for incident ${incidentId} with risk score ${incident.aiAnalysis.riskScore}. Creating a new ticket...`);
-            createdTicket = await ticketService.createTicketFromIncident(incident, incident.aiAnalysis);
-            console.log(`Ticket created automatically: ${createdTicket._id}`);
-        } else if (incident.aiAnalysis && incident.aiAnalysis.riskScore !== undefined) {
-            console.log(`AI analysis complete for incident ${incidentId} with risk score ${incident.aiAnalysis.riskScore}. No ticket created as risk score is below 80.`);
-        } else {
-            console.log(`AI analysis complete for incident ${incidentId}, but missing riskScore or recommendation to create a ticket.`);
+        // Automatically create a ticket after AI analysis if risk score is 75 or higher
+        if (incident.aiAnalysis && incident.aiAnalysis.riskScore >= 75 && incident.aiAnalysis.recommendation) {
+            const existingTicket = await Ticket.findOne({ incident: incident._id });
+            if (existingTicket) {
+                createdTicket = existingTicket;
+            } else {
+                console.log(`[IncidentService] Creating work order ticket for incident ${incidentId} (Risk Score: ${incident.aiAnalysis.riskScore})...`);
+                createdTicket = await ticketService.createTicketFromIncident(incident, incident.aiAnalysis);
+                console.log(`[IncidentService] Ticket created: ${createdTicket?._id}`);
+            }
         }
 
-        return { incident, ticket: createdTicket };
+        return {
+            incident,
+            ticket: createdTicket,
+            aiAnalysis: incident.aiAnalysis,
+        };
     } catch (error) {
-        console.error(`Error analyzing incident ${incidentId}: ${error.message}`);
-        throw error; // Re-throw the error for the controller to handle
+        console.error(`[IncidentService] Error analyzing incident ${incidentId}: ${error.message}`);
+        throw error;
     }
-}
+};

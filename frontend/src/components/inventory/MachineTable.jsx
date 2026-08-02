@@ -14,6 +14,15 @@ import {
 
 export const MachineTable = ({ machines, onInspect }) => {
   const navigate = useNavigate();
+  const handleInspect = (machine) => {
+    if (onInspect) {
+      onInspect(machine);
+      return;
+    }
+
+    navigate(`/inventory/${machine.id}`);
+  };
+
   const getStatusBadge = (status) => {
     switch (status) {
       case 'critical':
@@ -64,7 +73,7 @@ export const MachineTable = ({ machines, onInspect }) => {
               machines.map((machine) => (
                 <tr
                   key={machine.id}
-                  onClick={() => navigate(`/inventory/${machine.id}`)}
+                  onClick={() => handleInspect(machine)}
                   className="hover:bg-slate-850/50 transition cursor-pointer group"
                 >
                   <td className="p-3">
@@ -101,7 +110,7 @@ export const MachineTable = ({ machines, onInspect }) => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/inventory/${machine.id}`);
+                        handleInspect(machine);
                       }}
                       className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-cyan-500 hover:text-slate-950 text-cyan-400 text-[11px] font-semibold border border-slate-700 transition flex items-center gap-1 ml-auto"
                     >

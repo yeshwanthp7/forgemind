@@ -15,7 +15,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 
-export const MachineDetailModal = ({ machine, onClose, onDispatch }) => {
+export const MachineDetailModal = ({ machine, onClose, onDispatch, onEdit, onDelete }) => {
   if (!machine) return null;
 
   return (
@@ -134,23 +134,43 @@ export const MachineDetailModal = ({ machine, onClose, onDispatch }) => {
           </div>
 
           {/* Modal Footer */}
-          <div className="pt-4 flex justify-between items-center border-t border-slate-800">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
-            >
-              Close
-            </button>
-            <button
-              onClick={() => {
-                onDispatch(machine);
-                onClose();
-              }}
-              className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold flex items-center gap-2 shadow-lg shadow-cyan-500/20"
-            >
-              <Wrench className="w-4 h-4" />
-              <span>Dispatch Maintenance Order</span>
-            </button>
+          <div className="pt-4 flex flex-wrap justify-between items-center gap-3 border-t border-slate-800">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+              >
+                Close
+              </button>
+              {onDelete && (
+                <button
+                  onClick={() => onDelete(machine)}
+                  className="px-4 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 font-semibold border border-rose-500/30"
+                >
+                  Delete
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {onEdit && (
+                <button
+                  onClick={() => onEdit(machine)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 font-semibold border border-slate-700"
+                >
+                  Edit Machine
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  onDispatch(machine);
+                  onClose();
+                }}
+                className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold flex items-center gap-2 shadow-lg shadow-cyan-500/20"
+              >
+                <Wrench className="w-4 h-4" />
+                <span>Dispatch Maintenance Order</span>
+              </button>
+            </div>
           </div>
         </motion.div>
       </div>

@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
-  Ticket,
   Wrench,
   Download,
   Clock,
@@ -14,11 +13,130 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { ticketApi } from '../api/endpoints';
-import { getTicketDetail } from '../data/mockTicketDetails';
 import { TargetMachineCard } from '../components/tickets/TargetMachineCard';
 import { TechnicianChecklist } from '../components/tickets/TechnicianChecklist';
 import { EngineerNotesLog } from '../components/tickets/EngineerNotesLog';
 import { TicketSlaTimeline } from '../components/tickets/TicketSlaTimeline';
+
+const defaultAvatar = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80';
+
+const formatDateTime = (value) => {
+  if (!value) return null;
+  return new Date(value).toLocaleString();
+};
+
+const formatDateLabel = (value) => {
+  if (!value) return 'N/A';
+  return new Date(value).toLocaleDateString();
+};
+
+const normalizeTicket = (ticket) => {
+  const ai = ticket?.aiAnalysis || ticket?.incident?.aiAnalysis || {};
+  const severity = ticket?.priority || ai?.severity || 'P4 Low';
+  const riskScore = ai?.riskScore ?? (severity.includes('P1') || severity.includes('Critical') ? 95 : severity.includes('P2') || severity.includes('High') ? 80 : severity.includes('P3') || severity.includes('Medium') ? 50 : 25);
+  const rootCause = ai?.rootCause || 'N/A';
+  const recommendation = ai?.recommendation || ticket?.description || 'N/A';
+  const createdAt = ticket?.createdAt;
+  const completedAt = ticket?.completedAt;
+  const machineObj = typeof ticket?.machine === 'object' ? ticket.machine : null;
+  const machineName = machineObj?.name || (typeof ticket?.machine === 'string' ? ticket.machine : 'General Production Unit');
+  const machineId = machineObj?.machineId || machineObj?._id || (typeof ticket?.machine === 'string' ? ticket.machine : 'MC-001');
+  const machineZone = machineObj?.location || machineObj?.department || 'Zone B - Hydraulics Bay';
+  const machineType = machineObj?.type || 'Hydraulic Stamping Press';
+  const machineHealth = machineObj?.healthScore ?? Math.max(0, 100 - Number(riskScore || 0));
+  const machineTemp = machineObj?.telemetry?.temperature || machineObj?.temperature || (riskScore > 80 ? 98.4 : 64.2);
+  const machinePressure = machineObj?.telemetry?.pressure || machineObj?.pressure || (riskScore > 80 ? 8.6 : 4.5);
+  const incidentDescription = ticket?.description || ticket?.incident?.description || 'No incident description available.';
+
+  return {
+    ...ticket,
+    id: ticket?._id || ticket?.id || ticket?.ticketId,
+    ticketNumber: ticket?.ticketId || ticket?._id || ticket?.id || 'N/A',
+    title: ticket?.title || machineName || 'Maintenance Work Order',
+    priority: severity,
+    status: ticket?.status || 'Open',
+    assignedTo: ticket?.assignedTo || 'Maintenance Team',
+    estimatedDowntime: ticket?.estimatedDowntime || (riskScore >= 80 ? '4.5 Hours' : '1.5 Hours'),
+    createdAt: formatDateLabel(createdAt),
+    completedAt: completedAt ? formatDateLabel(completedAt) : null,
+    problemStatement: `${incidentDescription}${rootCause !== 'N/A' ? ` Root Cause: ${rootCause}.` : ''}${recommendation !== 'N/A' ? ` Recommendation: ${recommendation}.` : ''}`,
+    riskScore,
+    rootCause,
+    recommendation,
+    machineName,
+    machineDetails: {
+      id: machineId,
+      name: machineName,
+      type: machineType,
+      zone: machineZone,
+      healthScore: machineHealth,
+      temperature: machineTemp,
+      pressure: machinePressure,
+      riskLevel: severity,
+    },
+    assignedEngineer: {
+      name: ticket?.assignedTo || 'Cmdr. Alex Vance',
+      role: 'Lead Predictive Maintenance Specialist',
+      shift: 'Shift Alpha (06:00 - 14:00)',
+      email: 'alex.vance@forgemind.industrial',
+      avatar: defaultAvatar,
+    },
+    estimatedCompletion: ticket?.estimatedDowntime || (riskScore >= 80 ? '4.5 Hours' : '1.5 Hours'),
+    estimatedHoursRemaining: ticket?.estimatedDowntime || (riskScore >= 80 ? '4.5 Hours' : '1.5 Hours'),
+    slaProgress: severity.includes('P1') || severity.includes('Critical') ? 20 : severity.includes('P2') || severity.includes('High') ? 45 : severity.includes('P3') || severity.includes('Medium') ? 70 : 90,
+    checklist: [
+      {
+        id: 1,
+        task: 'Review AI diagnostic report and incident telemetry',
+        isCompleted: ticket?.status !== 'Open',
+        role: 'Operator',
+      },
+      {
+        id: 2,
+        task: `Execute remediation plan: ${recommendation !== 'N/A' ? recommendation : 'Inspect drive motor and bearing lubrication'}`,
+        isCompleted: ticket?.status === 'Resolved' || ticket?.status === 'Closed',
+        role: 'Technician',
+      },
+      {
+        id: 3,
+        task: 'Post-repair calibration and safety interlock verification',
+        isCompleted: ticket?.status === 'Resolved' || ticket?.status === 'Closed',
+        role: 'Lead Specialist',
+      }
+    ],
+    notes: [
+      {
+        id: 'note-ai',
+        author: 'ForgeMind AI Sentinel',
+        avatar: defaultAvatar,
+        time: `AI Confidence: ${ai?.confidence ? `${Math.round(ai.confidence * 100)}%` : '96%'}`,
+        content: `Automated Diagnostic: Root cause identified as "${rootCause !== 'N/A' ? rootCause : 'Mechanical friction overload'}". Recommended action: "${recommendation !== 'N/A' ? recommendation : 'Perform scheduled overhaul and sensor re-calibration'}".`,
+      },
+    ],
+    timeline: [
+      {
+        id: 'timeline-created',
+        time: createdAt ? formatDateTime(createdAt) : 'Just now',
+        title: `Work Order #${ticket?.ticketId || ticket?._id || 'N/A'} Dispatched`,
+        description: incidentDescription,
+        actor: ticket?.createdBy || 'ForgeMind AI Sentinel',
+        status: 'info',
+      },
+      ...(completedAt
+        ? [
+            {
+              id: 'timeline-completed',
+              time: formatDateTime(completedAt),
+              title: 'Work Order Resolved',
+              description: `Remediation completed and verified on ${formatDateTime(completedAt)}`,
+              actor: ticket?.assignedTo || 'Maintenance Lead',
+              status: 'success',
+            },
+          ]
+        : []),
+    ],
+  };
+};
 
 export const TicketDetailPage = () => {
   const { id } = useParams();
@@ -39,31 +157,42 @@ export const TicketDetailPage = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await ticketApi.getTicketById(id || 'WO-9902');
-      const data = res.data || getTicketDetail(id || 'WO-9902');
-      setTicket(data);
-      setTicketStatus(data.status || 'In Progress');
+      const res = await ticketApi.getTicketById(id);
+      const data = res?.data?.data || res?.data;
+      if (!data) {
+        throw new Error('Ticket not found');
+      }
+      const normalizedTicket = normalizeTicket(data);
+      setTicket(normalizedTicket);
+      setTicketStatus(normalizedTicket.status || 'Open');
     } catch (err) {
-      console.warn('Ticket Detail Axios fallback:', err);
-      const fallback = getTicketDetail(id || 'WO-9902');
-      setTicket(fallback);
-      setTicketStatus(fallback.status || 'In Progress');
+      console.error('Failed to fetch ticket details:', err);
+      setError('Failed to load ticket details. Please try again later.');
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchTicket();
+    if (id) {
+      fetchTicket();
+    }
   }, [id]);
 
   const handleStatusChange = async (newStatus) => {
+    if (!ticket?.id) return;
+    const previousStatus = ticketStatus;
     setTicketStatus(newStatus);
+    setTicket((prev) => (prev ? { ...prev, status: newStatus } : prev));
     try {
-      await ticketApi.updateStatus(id || 'WO-9902', newStatus);
-      showToast(`Work Order #${ticket?.ticketNumber} status updated to "${newStatus}" via Axios`);
+      await ticketApi.updateStatus(ticket.id, newStatus);
+      await fetchTicket();
+      showToast(`Ticket #${ticket?.ticketNumber} status updated to "${newStatus}"`);
     } catch (err) {
-      showToast(`Status updated to "${newStatus}"`);
+      console.error('Failed to update ticket status:', err);
+      setTicketStatus(previousStatus);
+      await fetchTicket();
+      showToast(`Failed to update ticket status to "${newStatus}"`);
     }
   };
 
@@ -101,6 +230,26 @@ export const TicketDetailPage = () => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-5 h-64 bg-slate-900 rounded-2xl" />
           <div className="lg:col-span-7 h-64 bg-slate-900 rounded-2xl" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !ticket) {
+    return (
+      <div className="space-y-6 p-4">
+        <div className="p-4 rounded-2xl bg-rose-950/60 border border-rose-500/40 text-rose-200 text-xs flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={fetchTicket}
+            className="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-100 font-bold flex items-center gap-1.5"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Retry Connection</span>
+          </button>
         </div>
       </div>
     );
@@ -162,7 +311,7 @@ export const TicketDetailPage = () => {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="p-6 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-950 border border-slate-800 backdrop-blur-xl shadow-2xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative overflow-hidden"
+        className="p-6 rounded-2xl bg-linear-to-r from-slate-900 via-slate-900/95 to-slate-950 border border-slate-800 backdrop-blur-xl shadow-2xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 relative overflow-hidden"
       >
         <div className="space-y-2 max-w-3xl relative z-10">
           <div className="flex flex-wrap items-center gap-2.5">
@@ -172,6 +321,14 @@ export const TicketDetailPage = () => {
             </span>
             <span className="px-2.5 py-0.5 rounded bg-slate-800 text-slate-400 text-xs font-mono">
               Created: {ticket.createdAt}
+            </span>
+            {ticket.completedAt && (
+              <span className="px-2.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-mono">
+                Completed: {ticket.completedAt}
+              </span>
+            )}
+            <span className="px-2.5 py-0.5 rounded bg-slate-800 text-slate-400 text-xs font-mono">
+              Machine: {ticket.machineName}
             </span>
           </div>
 
@@ -193,9 +350,11 @@ export const TicketDetailPage = () => {
               onChange={(e) => handleStatusChange(e.target.value)}
               className="bg-slate-950 border border-cyan-500/40 rounded-xl px-3.5 py-2 text-xs font-bold text-cyan-300 font-mono focus:outline-none focus:border-cyan-400 shadow-md"
             >
+              <option value="Open">Status: Open</option>
               <option value="In Progress">Status: In Progress</option>
               <option value="Pending Parts">Status: Pending Parts</option>
               <option value="Investigating">Status: Investigating</option>
+              <option value="Review">Status: Review</option>
               <option value="Resolved">Status: Resolved</option>
               <option value="Closed">Status: Closed</option>
             </select>
@@ -234,7 +393,7 @@ export const TicketDetailPage = () => {
                 {ticket.priority}
               </span>
             </div>
-            <p className="text-[10px] text-slate-400 font-mono">ISO Emergency Escalation Active</p>
+            <p className="text-[10px] text-slate-400 font-mono">Risk Score: {ticket.riskScore}</p>
           </div>
 
           {/* 2. Assigned Engineer Card */}
@@ -269,11 +428,11 @@ export const TicketDetailPage = () => {
             <div className="text-sm font-extrabold text-white font-mono">{ticket.estimatedCompletion}</div>
             <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
               <div
-                className="h-full bg-gradient-to-r from-amber-500 to-emerald-400"
+                className="h-full bg-linear-to-r from-amber-500 to-emerald-400"
                 style={{ width: `${ticket.slaProgress}%` }}
               />
             </div>
-            <p className="text-[10px] text-slate-400 font-mono">{ticket.estimatedHoursRemaining}</p>
+            <p className="text-[10px] text-slate-400 font-mono">Estimated Downtime: {ticket.estimatedHoursRemaining}</p>
           </div>
 
           {/* 4. Current Work Order Status Card */}

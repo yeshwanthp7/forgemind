@@ -28,16 +28,23 @@ export const DragDropUploadZone = ({ files, onAddFiles, onRemoveFile }) => {
     }
   };
 
-  const processFiles = (rawFiles) => {
-    const processed = rawFiles.map((file, idx) => ({
-      id: `${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-      name: file.name,
-      type: file.type,
-      sizeFormatted: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
-      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null
-    }));
-    onAddFiles(processed);
-  };
+ const processFiles = (rawFiles) => {
+  const processed = rawFiles.map((file, idx) => ({
+    id: `${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+
+    // ⭐ Store original File object (NEW)
+    file,
+
+    name: file.name,
+    type: file.type,
+    sizeFormatted: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
+    previewUrl: file.type.startsWith('image/')
+      ? URL.createObjectURL(file)
+      : null
+  }));
+
+  onAddFiles(processed);
+};
 
   return (
     <div className="space-y-4">
@@ -61,9 +68,9 @@ export const DragDropUploadZone = ({ files, onAddFiles, onRemoveFile }) => {
           id="incident-dropzone-input"
         />
 
-        <label htmlFor="incident-dropzone-input" className="cursor-pointer flex flex-col items-center justify-center space-y-3">
+        <label htmlFor="incident-dropzone-input" className="flex flex-col items-center justify-center space-y-3 cursor-pointer">
           {/* Animated Upload Icon */}
-          <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center shadow-lg group-hover:scale-110 transition">
+          <div className="flex items-center justify-center transition border shadow-lg w-14 h-14 rounded-2xl bg-cyan-500/10 border-cyan-500/20 text-cyan-400 group-hover:scale-110">
             <UploadCloud className="w-7 h-7 text-cyan-400 animate-bounce" style={{ animationDuration: '3s' }} />
           </div>
 
@@ -73,7 +80,7 @@ export const DragDropUploadZone = ({ files, onAddFiles, onRemoveFile }) => {
               <span>Drag & drop thermal photos, acoustic WAVs, or telemetry CSVs</span>
             </h4>
             <p className="text-xs text-slate-400">
-              or <span className="text-cyan-400 font-semibold underline">browse files</span> from your computer
+              or <span className="font-semibold underline text-cyan-400">browse files</span> from your computer
             </p>
           </div>
 
