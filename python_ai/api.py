@@ -16,5 +16,8 @@ def analyze():
 
     return jsonify(result)
 
+import os
+
 if __name__ == "__main__":
-    app.run(port=5000, debug=True)
+    port = int(os.getenv("PYTHON_PORT", 5001))
+    app.run(port=port, debug=True)
